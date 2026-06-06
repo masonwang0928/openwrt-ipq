@@ -21,7 +21,7 @@ jobs:
 
       - name: 下载 OpenWrt 源码（替换成你的仓库/分支）
         run: |
-          git clone https://github.com/你的用户名/你的仓库.git openwrt
+          git clone https://github.com/qosmio/openwrt-ipq.git -b main-nss openwrt
           cd openwrt
           git checkout main-nss
 
