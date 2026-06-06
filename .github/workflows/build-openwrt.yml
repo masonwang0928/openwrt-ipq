@@ -1,10 +1,8 @@
-name: Build RE-CS-07 (IPQ60xx + NSS + ECM + FW4 + 全套插件)
+name: Build OpenWrt (IPQ60xx NSS)
 
+# ---------- 关键：只留手动触发，GitHub 100% 识别 ----------
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main-nss
 
 jobs:
   build:
@@ -13,132 +11,51 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: 安装依赖
         run: |
-          sudo apt update -y
-          sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
-          gettext git libncurses-dev libssl-dev python3 python3-pip python3-setuptools \
-          python3-wheel zlib1g-dev libbz2-dev zip unzip wget curl rsync ccache \
-          device-tree-compiler quilt squashfs-tools
+          sudo apt update
+          sudo apt install -y build-essential flex bison git-core \
+            libssl-dev libtool pkg-config libncurses5-dev zlib1g-dev \
+            python3 python3-pip unzip wget curl rsync subversion
+          sudo -E apt clean
 
-      - name: Clone Source
+      - name: 下载 OpenWrt 源码（替换成你的仓库/分支）
         run: |
-          git clone https://github.com/qosmio/openwrt-ipq.git -b main-nss openwrt
-
-      - name: Write .config
-        run: |
+          git clone https://github.com/你的用户名/你的仓库.git openwrt
           cd openwrt
-          cat > .config << 'EOF'
-CONFIG_TARGET_qualcommax=y
-CONFIG_TARGET_qualcommax_ipq60xx=y
-CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-cs-07=y
-CONFIG_TARGET_BOARD="qualcommax"
-CONFIG_TARGET_SUBTARGET="ipq60xx"
-CONFIG_TARGET_PROFILE="DEVICE_jdcloud_re-cs-07"
-CONFIG_TARGET_ARCH_PACKAGES="armcortex-a53"
+          git checkout main-nss
 
-# NSS + ECM
-CONFIG_PACKAGE_kmod-qca-nss-drv=y
-CONFIG_PACKAGE_kmod-qca-nss-ecm=y
-CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe=y
-CONFIG_PACKAGE_kmod-qca-nss-drv-qdisc=y
-CONFIG_PACKAGE_qca-nss-firmware-ipq60xx=y
-
-CONFIG_NSS_DRV_IPV4_ENABLE=y
-CONFIG_NSS_DRV_PPPOE_ENABLE=y
-CONFIG_NSS_DRV_NAT_ENABLE=y
-CONFIG_NSS_DRV_FAST_NAT_ENABLE=y
-CONFIG_ECM_FRONT_END_SELECTION=0
-CONFIG_ECM_CLASSIFIER_DEFAULT=1
-
-# Performance
-CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
-CONFIG_CCACHE=y
-CONFIG_FASTNAT=y
-CONFIG_RPS=y
-CONFIG_RFS=y
-
-# Disable WiFi
-CONFIG_WIRELESS=n
-CONFIG_PACKAGE_kmod-ath11k=n
-CONFIG_PACKAGE_hostapd=n
-CONFIG_PACKAGE_wpa-supplicant=n
-
-# Firewall4 ONLY
-CONFIG_PACKAGE_firewall4=y
-CONFIG_PACKAGE_firewall3=n
-CONFIG_PACKAGE_iptables=n
-CONFIG_PACKAGE_iptables-nft=n
-CONFIG_PACKAGE_ip6tables=n
-CONFIG_PACKAGE_kmod-ipt-nat=n
-CONFIG_PACKAGE_kmod-ipt-nathelper=n
-CONFIG_PACKAGE_kmod-ipt-filter=n
-
-# Network
-CONFIG_PACKAGE_mwan3=y
-CONFIG_PACKAGE_luci-app-mwan3=y
-CONFIG_PACKAGE_ppp=y
-CONFIG_PACKAGE_pppoe=y
-CONFIG_PACKAGE_iproute2=y
-CONFIG_PACKAGE_ipset=y
-
-# LuCI
-CONFIG_PACKAGE_luci=y
-CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-CONFIG_PACKAGE_luci-app-firewall=y
-
-# Themes
-CONFIG_PACKAGE_luci-theme-argon=y
-CONFIG_PACKAGE_luci-theme-edge=y
-CONFIG_PACKAGE_luci-theme-opentopd=y
-
-# CPU Tools
-CONFIG_PACKAGE_luci-app-cpufreq=y
-CONFIG_PACKAGE_luci-app-cpu-status=y
-
-# Apps
-CONFIG_PACKAGE_luci-app-openclash=y
-CONFIG_PACKAGE_luci-app-adguardhome=y
-CONFIG_PACKAGE_luci-app-samba4=y
-CONFIG_PACKAGE_luci-app-smartdns=y
-CONFIG_PACKAGE_luci-app-aria2=y
-CONFIG_PACKAGE_luci-app-vlmcsd=y
-CONFIG_PACKAGE_luci-app-mosdns=y
-CONFIG_PACKAGE_luci-app-filetransfer=y
-CONFIG_PACKAGE_luci-app-mwan3help=y
-CONFIG_PACKAGE_luci-app-ntpc=y
-
-# IPTV
-CONFIG_PACKAGE_luci-app-udpxy=y
-CONFIG_PACKAGE_luci-app-msd_lite=y
-CONFIG_PACKAGE_luci-app-igmpproxy=y
-
-# Disable
-CONFIG_IPV6=n
-CONFIG_PACKAGE_docker=n
-CONFIG_PACKAGE_istore=n
-CONFIG_PACKAGE_nginx=n
-EOF
-
-      - name: Update & Install Feeds
+      - name: 更新 & 安装 feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Prepare Config
+      - name: 上传你的 .config（重要！）
         run: |
           cd openwrt
+          # 把你仓库根目录的 .config 复制进来
+          cp $GITHUB_WORKSPACE/.config .config
           make defconfig
-          make download -j$(nproc)
 
-      - name: Build Firmware
+      - name: 下载 dl 包
         run: |
           cd openwrt
-          make -j$(nproc) || make -j1 V=s
+          make download -j8
 
-      - name: Upload Firmware
+      - name: 编译（大约 2–4 小时）
+        run: |
+          cd openwrt
+          make -j$(nproc) V=s
+
+      - name: 打包固件
+        run: |
+          cd openwrt
+          mkdir -p ../firmware
+          find bin/targets/ -name "*sysupgrade*.bin" -o -name "*combined*.img" | xargs -i cp {} ../firmware/
+
+      - name: 上传成品
         uses: actions/upload-artifact@v4
         with:
-          name: RE-CS-07-NSS-ECM-FW4
-          path: openwrt/bin/targets/qualcommax/ipq60xx/*
+          name: openwrt-firmware
+          path: firmware/
