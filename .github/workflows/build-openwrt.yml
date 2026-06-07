@@ -1,4 +1,7 @@
-name: Build OpenWrt (IPQ60xx NSS)
+name: Build OpenWrt (IPQ60xx NSS 复刻版)
+concurrency:
+  group: openwrt-ipq60xx-build
+  cancel-in-progress: false
 
 on:
   workflow_dispatch:
@@ -7,25 +10,22 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout code
+      - name: Checkout 仓库代码
         uses: actions/checkout@v4
 
-      - name: 安装编译依赖
+      - name: 安装编译依赖环境
         run: |
           sudo apt update
           sudo apt install -y build-essential flex bison git-core libssl-dev libtool pkg-config libncurses5-dev zlib1g-dev python3 python3-pip unzip wget curl rsync subversion
           sudo -E apt clean
 
-      - name: 下载 OpenWrt 源码
+      - name: 拉取 IPQ60xx NSS 源码
         run: |
           git clone https://github.com/qosmio/openwrt-ipq.git -b main-nss openwrt
           cd openwrt
           git checkout main-nss
 
-      # ==============================
-      # 编译缓存（加速后续编译）
-      # ==============================
-      - name: Cache OpenWrt 编译环境
+      - name: 加载编译缓存
         uses: actions/cache@v3
         id: cache-openwrt
         with:
@@ -35,64 +35,62 @@ jobs:
             openwrt/staging_dir
             openwrt/dl
             openwrt/package/feeds
-          key: ${{ runner.os }}-openwrt-${{ hashFiles('openwrt/.config') }}
+          key: ${{ runner.os }}-openwrt-ipq60xx-${{ hashFiles('openwrt/.config') }}
           restore-keys: |
-            ${{ runner.os }}-openwrt-
+            ${{ runner.os }}-openwrt-ipq60xx-
 
-      - name: 更新 feeds 并安装软件包
+      - name: 更新并安装软件源 feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 应用 .config 配置
+      # --------------------------
+      # 关键修正：先复制 .config 再 defconfig，确保设备型号生效
+      # --------------------------
+      - name: 应用自定义 .config 配置
         run: |
           cd openwrt
           cp $GITHUB_WORKSPACE/.config .config
           make defconfig
+          # 强制确认目标设备配置，防止被覆盖
+          echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" >> .config
+          make defconfig
 
-      # ==============================
-      # 缓存命中 → 跳过重复下载
-      # ==============================
-      - name: 下载依赖包 (首次编译执行)
+      - name: 下载源码依赖包（仅无缓存时执行）
         if: steps.cache-openwrt.outputs.cache-hit != 'true'
         run: |
           cd openwrt
           make download -j8
 
-      - name: 开始编译固件
+      - name: 正式编译固件
         run: |
           cd openwrt
           make -j$(nproc) V=s
 
-      # ==============================
-      # 提取固件：升级版 + Uboot直刷版
-      # ==============================
-      - name: 提取固件
+      - name: 打包 sysupgrade + factory 固件
         run: |
           cd openwrt
           mkdir -p ../firmware
+          # 系统内升级包（保留配置）
           find bin/targets/ -name "*sysupgrade*.bin" -exec cp {} ../firmware/ \;
+          # U-Boot/TFTP 直刷包（全新刷机/救砖）
           find bin/targets/ -name "*factory*.bin" -exec cp {} ../firmware/ \;
+          # 额外备份U-Boot引导文件（可选）
           find bin/targets/ -name "u-boot*.bin" -o -name "u-boot*.mbn" -exec cp {} ../firmware/ \; 2>/dev/null || true
 
-      # ==============================
-      # 上传到 Actions 临时存储
-      # ==============================
-      - name: Upload firmware to Artifacts
+      - name: 上传固件至 Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-firmware
+          name: openwrt-ipq60xx-firmware
           path: firmware/
 
-      # ==============================
-      # 自动上传到 Release（永久保存）
-      # ==============================
-      - name: Upload to GitHub Release
+      - name: 发布固件至 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: firmware/*
           tag_name: "build-${{ github.run_number }}"
+          title: "IPQ60xx-NSS 复刻固件 编译批次${{ github.run_number }}"
           draft: false
           prerelease: false
           generate_release_notes: true
