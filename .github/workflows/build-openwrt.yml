@@ -1,4 +1,4 @@
-name: Build OpenWrt (IPQ60xx NSS 终极稳定版)
+name: Build OpenWrt (IPQ60xx NSS 一键通版)
 concurrency:
   group: openwrt-ipq60xx-build
   cancel-in-progress: false
@@ -25,71 +25,58 @@ jobs:
           cd openwrt
           git checkout main-nss
 
-      # -------------------------- 关键改动：直接写入完整的 .config，跳过所有 make defconfig --------------------------
-      - name: 直接写入完整配置（跳过所有自动配置）
+      - name: 跳过所有 feeds，直接生成配置（关键）
         run: |
           cd openwrt
-          # 清空旧配置
-          rm -f .config
-          
-          # 写入目标设备配置
-          echo "CONFIG_TARGET_qualcommax=y" > .config
-          echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
-          echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" >> .config
-          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=256" >> .config
-          
-          # 写入NSS硬件加速
-          echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
-          echo "CONFIG_PACKAGE_nss-firmware-ipq6018=y" >> .config
-          
-          # 写入MWAN3
-          echo "CONFIG_PACKAGE_mwan3=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-mwan3=y" >> .config
-          
-          # 写入MosDNS
-          echo "CONFIG_PACKAGE_luci-app-mosdns=y" >> .config
-          echo "CONFIG_PACKAGE_mosdns=y" >> .config
-          echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
-          
-          # 写入代理套件
-          echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
-          echo "CONFIG_PACKAGE_openclash=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-nikki=y" >> .config
-          echo "CONFIG_PACKAGE_nikki=y" >> .config
-          echo "CONFIG_PACKAGE_iptables-mod-tproxy=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-          
-          # 写入常用工具
-          echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-samba4=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-ddns=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
-          
-          # 禁用无线相关包
-          echo "# CONFIG_PACKAGE_luci-app-wireless is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-ath11k is not set" >> .config
-          
-          # 禁用所有可能导致警告的包
-          echo "# CONFIG_PACKAGE_sqm-scripts is not set" >> .config
-          echo "# CONFIG_PACKAGE_sqm-scripts-nss is not set" >> .config
-          echo "# CONFIG_PACKAGE_iptasn is not set" >> .config
-          echo "# CONFIG_PACKAGE_iptables-nft is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-tls is not set" >> .config
-          
-          # 校验配置是否生成
+          # 1. 直接写入完整的 .config，完全跳过 make defconfig
+          cat > .config << 'EOF'
+CONFIG_TARGET_qualcommax=y
+CONFIG_TARGET_qualcommax_ipq60xx=y
+CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=256
+CONFIG_PACKAGE_kmod-qca-nss-drv=y
+CONFIG_PACKAGE_kmod-qca-nss-ecm=y
+CONFIG_PACKAGE_nss-firmware-ipq6018=y
+CONFIG_PACKAGE_mwan3=y
+CONFIG_PACKAGE_luci-app-mwan3=y
+CONFIG_PACKAGE_luci-app-mosdns=y
+CONFIG_PACKAGE_mosdns=y
+CONFIG_PACKAGE_dnsmasq-full=y
+CONFIG_PACKAGE_luci-app-openclash=y
+CONFIG_PACKAGE_openclash=y
+CONFIG_PACKAGE_luci-app-nikki=y
+CONFIG_PACKAGE_nikki=y
+CONFIG_PACKAGE_iptables-mod-tproxy=y
+CONFIG_PACKAGE_kmod-tun=y
+CONFIG_PACKAGE_luci-app-ttyd=y
+CONFIG_PACKAGE_luci-app-samba4=y
+CONFIG_PACKAGE_luci-app-ddns=y
+CONFIG_PACKAGE_luci-app-upnp=y
+# 禁用无线
+# CONFIG_PACKAGE_luci-app-wireless is not set
+# CONFIG_PACKAGE_kmod-ath11k is not set
+# 禁用循环依赖包
+# CONFIG_PACKAGE_sqm-scripts is not set
+# CONFIG_PACKAGE_sqm-scripts-nss is not set
+# CONFIG_PACKAGE_iptasn is not set
+# CONFIG_PACKAGE_iptables-nft is not set
+# CONFIG_PACKAGE_kmod-tls is not set
+EOF
+          # 2. 校验配置文件是否生成
           if [ ! -f .config ]; then
-            echo ".config file not generated!"
+            echo ".config 生成失败！"
             exit 1
           fi
-          
-          # 校验设备配置是否生效
+          # 3. 校验设备配置是否正确
           grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" .config || exit 1
 
-      - name: 下载源码依赖包
+      - name: 下载源码依赖包（强制跳过 menuconfig）
         run: |
           cd openwrt
+          # 伪造终端环境，跳过 menuconfig
+          export TERM=xterm
+          # 直接执行 make download，不触发 menuconfig
           make download -j8
 
       - name: 正式编译固件
