@@ -48,11 +48,17 @@ jobs:
       - name: 应用自定义 .config 配置
         run: |
           cd openwrt
+          # 1. 强制复制根目录的.config
           cp -f $GITHUB_WORKSPACE/.config .config
+          # 2. 先执行一次defconfig展开依赖
+          make defconfig
+          # 3. 强制写入设备配置，防止被覆盖
           echo "CONFIG_TARGET_qualcommax=y" >> .config
           echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
           echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" >> .config
+          # 4. 再次执行defconfig确认
           make defconfig
+          # 5. 校验配置是否生效，不生效则直接报错
           grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" .config || exit 1
 
       - name: 下载源码依赖包（仅无缓存时执行）
