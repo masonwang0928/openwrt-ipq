@@ -1,28 +1,48 @@
-name: Build RE-CS-07 终极固件
-
+name: Build RE-CS-07 终极完整版固件
 on:
   workflow_dispatch:
-  push:
-    branches: [ main-nss ]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 检出代码
+      - name: 1. 切换系统镜像为阿里云
+        run: |
+          sudo sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+          sudo sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+          sudo apt update -y
+
+      - name: 2. 安装编译依赖
+        run: |
+          sudo apt install -y build-essential ccache libelf-dev libssl-dev gawk git python3 python3-pip python3-distutils python3-setuptools dwarves pahole llvm clang unzip wget zlib1g-dev
+
+      - name: 3. GIT 全局加速（必须，否则拉代码失败）
+        run: |
+          git config --global url."https://ghproxy.net/https://github.com/".insteadOf "https://github.com/"
+          git config --global url."https://ghproxy.net/https://github.com/".insteadOf "git@github.com:"
+          git config --global http.postBuffer 1024M
+          git config --global http.sslVerify false
+
+      - name: 4. 拉取固件源码（镜像源：masonwang0928/openwrt-ipq main-nss）
         uses: actions/checkout@v4
         with:
+          repository: masonwang0928/openwrt-ipq
           ref: main-nss
           fetch-depth: 0
+          submodules: recursive
 
-      - name: 安装编译依赖
+      - name: 5. 替换 feeds 为国内镜像源（OpenWrt官方插件源）
         run: |
-          sudo apt update -y
-          sudo apt install -y build-essential ccache libelf-dev libssl-dev \
-          gawk git python3 python3-distutils python3-setuptools \
-          dwarves pahole llvm clang unzip wget zlib1g-dev
+          sed -i 's|git://git.openwrt.org|https://ghproxy.net/https://github.com/openwrt|g' feeds.conf.default
+          sed -i 's|https://git.openwrt.org|https://ghproxy.net/https://github.com/openwrt|g' feeds.conf.default
+          sed -i 's|git.openwrt.org/feed|https://ghproxy.net/https://github.com/openwrt|g' feeds.conf.default
 
-      - name: 创建默认IP脚本(192.168.31.1)
+      - name: 6. 更新 feeds 软件包
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 7. 设置默认IP 192.168.31.1
         run: |
           mkdir -p files/etc/uci-defaults
           cat > files/etc/uci-defaults/99-set-lan-ip << 'EOF'
@@ -30,44 +50,25 @@ jobs:
 uci set network.lan.ipaddr='192.168.31.1'
 uci set network.lan.netmask='255.255.255.0'
 uci commit network
-/etc/init.d/network restart
 exit 0
 EOF
           chmod 755 files/etc/uci-defaults/99-set-lan-ip
 
-      - name: 更新 feeds
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: 写入完整.config
+      - name: 8. 写入完整.config（你所有插件+主题+NSS+dae+机型锁定）
         run: |
           cat > .config << 'EOF'
-# ==============================
-# 机型锁定：升级永不报错
-# ==============================
 CONFIG_TARGET_BOARD="qualcommax"
 CONFIG_TARGET_DEVICE_STRING="qualcommax ipq60xx jdcloud_re-cs-07"
-
-# ==============================
-# 设备：京东云 RE-CS-07
-# ==============================
 CONFIG_TARGET_qualcommax=y
 CONFIG_TARGET_qualcommax_ipq60xx=y
 CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-cs-07=y
 
-# ==============================
-# 内核 6.6 + NSS/ECM 加速
-# ==============================
 CONFIG_LINUX_6_6=y
 CONFIG_PACKAGE_kmod-qca-nss-drv=y
 CONFIG_PACKAGE_kmod-qca-nss-ecm=y
 CONFIG_PACKAGE_kmod-qca-nss-ifb=y
 CONFIG_PACKAGE_kmod-qca-nss-qdisc=y
 
-# ==============================
-# BTF + BPF (dae 必备)
-# ==============================
 CONFIG_DEBUG_INFO=y
 CONFIG_DEBUG_INFO_BTF=y
 CONFIG_BPF=y
@@ -76,55 +77,34 @@ CONFIG_BPF_JIT=y
 CONFIG_NET_INGRESS=y
 CONFIG_NET_EGRESS=y
 
-# ==============================
-# MWAN3 + mwan3help
-# ==============================
 CONFIG_PACKAGE_mwan3=y
 CONFIG_PACKAGE_luci-app-mwan3=y
 CONFIG_PACKAGE_mwan3help=y
 CONFIG_PACKAGE_luci-app-mwan3help=y
 
-# ==============================
-# dae + daed
-# ==============================
 CONFIG_PACKAGE_dae=y
 CONFIG_PACKAGE_daed=y
 CONFIG_PACKAGE_luci-app-daed=y
 CONFIG_PACKAGE_v2ray-geodata=y
 
-# ==============================
-# AdGuardHome
-# ==============================
 CONFIG_PACKAGE_adguardhome=y
 CONFIG_PACKAGE_luci-app-adguardhome=y
 CONFIG_PACKAGE_luci-i18n-adguardhome-zh-cn=y
 
-# ==============================
-# MosDNS
-# ==============================
 CONFIG_PACKAGE_mosdns=y
 CONFIG_PACKAGE_luci-app-mosdns=y
 CONFIG_PACKAGE_luci-i18n-mosdns-zh-cn=y
 
-# ==============================
-# OpenClash
-# ==============================
 CONFIG_PACKAGE_luci-app-openclash=y
 CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
 
-# ==============================
-# KMS
-# ==============================
 CONFIG_PACKAGE_vlmcsd=y
 CONFIG_PACKAGE_luci-app-vlmcsd=y
 
-# ==============================
-# 全套主题
-# ==============================
 CONFIG_PACKAGE_luci-theme-argon=y
 CONFIG_PACKAGE_luci-i18n-argon-zh-cn=y
 CONFIG_PACKAGE_luci-theme-bootstrap=y
-CONFIG_PACKAGE_luci-i18n-bootstrap-zh-cn=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
 CONFIG_PACKAGE_luci-theme-material=y
 CONFIG_PACKAGE_luci-i18n-material-zh-cn=y
 CONFIG_PACKAGE_luci-theme-openwrt-2020=y
@@ -132,9 +112,6 @@ CONFIG_PACKAGE_luci-i18n-openwrt-2020-zh-cn=y
 CONFIG_PACKAGE_luci-theme-alpha=y
 CONFIG_PACKAGE_luci-i18n-alpha-zh-cn=y
 
-# ==============================
-# 基础工具
-# ==============================
 CONFIG_PACKAGE_luci-app-ttyd=y
 CONFIG_PACKAGE_ip-full=y
 CONFIG_PACKAGE_iproute2=y
@@ -145,11 +122,11 @@ CONFIG_PACKAGE_block-mount=y
 EOF
           make defconfig
 
-      - name: 开始编译
+      - name: 9. 开始编译固件
         run: |
           make -j$(nproc) V=s
 
-      - name: 上传固件
+      - name: 10. 上传固件成品
         uses: actions/upload-artifact@v4
         with:
           name: RE-CS07-Full-Firmware
