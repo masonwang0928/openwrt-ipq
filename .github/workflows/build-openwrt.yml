@@ -25,33 +25,35 @@ jobs:
           cd openwrt
           git checkout main-nss
 
-      # -------------------------- 关键改动：跳过所有 feeds 操作 --------------------------
-      - name: 跳过 feeds install，直接生成配置
+      # -------------------------- 关键改动：直接写入完整的 .config，跳过所有 make defconfig --------------------------
+      - name: 直接写入完整配置（跳过所有自动配置）
         run: |
           cd openwrt
-          # 1. 清空旧配置，写入目标设备基础配置
+          # 清空旧配置
           rm -f .config
+          
+          # 写入目标设备配置
           echo "CONFIG_TARGET_qualcommax=y" > .config
           echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
           echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" >> .config
           echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
           echo "CONFIG_TARGET_ROOTFS_PARTSIZE=256" >> .config
           
-          # 2. 只展开目标设备的基础配置，不安装任何 feeds 包
-          make defconfig
-          
-          # 3. 注入你需要的核心功能（只使用源码自带的包，不依赖 feeds）
+          # 写入NSS硬件加速
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
           echo "CONFIG_PACKAGE_nss-firmware-ipq6018=y" >> .config
           
+          # 写入MWAN3
           echo "CONFIG_PACKAGE_mwan3=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-mwan3=y" >> .config
           
+          # 写入MosDNS
           echo "CONFIG_PACKAGE_luci-app-mosdns=y" >> .config
           echo "CONFIG_PACKAGE_mosdns=y" >> .config
           echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
           
+          # 写入代理套件
           echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
           echo "CONFIG_PACKAGE_openclash=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-nikki=y" >> .config
@@ -59,19 +61,30 @@ jobs:
           echo "CONFIG_PACKAGE_iptables-mod-tproxy=y" >> .config
           echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
           
+          # 写入常用工具
           echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-samba4=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-ddns=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
           
-          # 4. 禁用所有无线相关包
+          # 禁用无线相关包
           echo "# CONFIG_PACKAGE_luci-app-wireless is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-ath11k is not set" >> .config
           
-          # 5. 再执行一次 defconfig 确认
-          make defconfig
+          # 禁用所有可能导致警告的包
+          echo "# CONFIG_PACKAGE_sqm-scripts is not set" >> .config
+          echo "# CONFIG_PACKAGE_sqm-scripts-nss is not set" >> .config
+          echo "# CONFIG_PACKAGE_iptasn is not set" >> .config
+          echo "# CONFIG_PACKAGE_iptables-nft is not set" >> .config
+          echo "# CONFIG_PACKAGE_kmod-tls is not set" >> .config
           
-          # 6. 校验设备配置是否生效
+          # 校验配置是否生成
+          if [ ! -f .config ]; then
+            echo ".config file not generated!"
+            exit 1
+          fi
+          
+          # 校验设备配置是否生效
           grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" .config || exit 1
 
       - name: 下载源码依赖包
