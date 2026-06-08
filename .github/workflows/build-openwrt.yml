@@ -19,22 +19,33 @@ jobs:
           sudo apt install -y build-essential flex bison git-core libssl-dev libtool pkg-config libncurses5-dev zlib1g-dev python3 python3-pip unzip wget curl rsync subversion
           sudo -E apt clean
 
-      - name: 拉取 IPQ60xx NSS 源码（你已经fork的版本）
+      - name: 拉取 IPQ60xx NSS 源码
         run: |
-          git clone https://github.com/masonwang0928/openwrt-ipq.git -b main-nss openwrt
+          git clone https://github.com/qosmio/openwrt-ipq.git -b main-nss openwrt
           cd openwrt
           git checkout main-nss
 
+      # -------------------------- 关键改动：物理删除有问题的 packages feeds --------------------------
+      - name: 物理移除 packages feeds，避免循环依赖
+        run: |
+          cd openwrt
+          # 1. 直接删除 feeds.conf.default 里的 packages 源
+          sed -i '/src-git packages/d' feeds.conf.default
+          # 2. 删除已安装的 packages 源目录，确保不会被加载
+          rm -rf feeds/packages
+          # 3. 重新生成 feeds 配置，只保留 luci
+          ./scripts/feeds clean
+          
       - name: 更新并安装软件源 feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 生成配置（关键：直接禁用所有循环依赖包）
+      - name: 生成目标配置（无循环依赖）
         run: |
           cd openwrt
-          # 1. 清空旧配置，写入目标设备基础配置
+          # 1. 写入基础设备配置
           rm -f .config
           echo "CONFIG_TARGET_qualcommax=y" > .config
           echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
@@ -42,28 +53,17 @@ jobs:
           echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
           echo "CONFIG_TARGET_ROOTFS_PARTSIZE=256" >> .config
           
-          # 2. 先执行一次defconfig，只展开目标设备基础依赖
-          make defconfig
-          
-          # 3. 用sed强制禁用所有会导致循环依赖的包（关键）
-          sed -i 's/^CONFIG_PACKAGE_sqm-scripts=.*/# CONFIG_PACKAGE_sqm-scripts is not set/' .config
-          sed -i 's/^CONFIG_PACKAGE_sqm-scripts-nss=.*/# CONFIG_PACKAGE_sqm-scripts-nss is not set/' .config
-          sed -i 's/^CONFIG_PACKAGE_iptasn=.*/# CONFIG_PACKAGE_iptasn is not set/' .config
-          sed -i 's/^CONFIG_PACKAGE_iptables-nft=.*/# CONFIG_PACKAGE_iptables-nft is not set/' .config
-          sed -i 's/^CONFIG_PACKAGE_kmod-tls=.*/# CONFIG_PACKAGE_kmod-tls is not set/' .config
-          
-          # 4. 注入你需要的核心功能（NSS + MWAN3 + MosDNS + 代理）
+          # 2. 注入核心NSS硬件加速
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
           echo "CONFIG_PACKAGE_nss-firmware-ipq6018=y" >> .config
           
+          # 3. 注入MWAN3 + MosDNS + 代理
           echo "CONFIG_PACKAGE_mwan3=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-mwan3=y" >> .config
-          
           echo "CONFIG_PACKAGE_luci-app-mosdns=y" >> .config
           echo "CONFIG_PACKAGE_mosdns=y" >> .config
           echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
-          
           echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
           echo "CONFIG_PACKAGE_openclash=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-nikki=y" >> .config
@@ -71,20 +71,20 @@ jobs:
           echo "CONFIG_PACKAGE_iptables-mod-tproxy=y" >> .config
           echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
           
-          # 5. 注入常用工具
+          # 4. 注入常用工具
           echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-samba4=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-ddns=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
           
-          # 6. 禁用无线相关包（你的设备无WiFi）
+          # 5. 禁用无线相关包
           echo "# CONFIG_PACKAGE_luci-app-wireless is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-ath11k is not set" >> .config
           
-          # 7. 再执行一次defconfig确认
+          # 6. 执行一次 defconfig（此时不会再触发循环依赖）
           make defconfig
           
-          # 8. 校验设备配置是否生效
+          # 7. 校验设备配置
           grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" .config || exit 1
 
       - name: 下载源码依赖包
