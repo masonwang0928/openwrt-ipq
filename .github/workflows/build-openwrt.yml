@@ -1,4 +1,4 @@
-name: Build OpenWrt (IPQ60xx NSS 终极版)
+name: Build OpenWrt (IPQ60xx NSS 终极稳定版)
 concurrency:
   group: openwrt-ipq60xx-build
   cancel-in-progress: false
@@ -19,9 +19,9 @@ jobs:
           sudo apt install -y build-essential flex bison git-core libssl-dev libtool pkg-config libncurses5-dev zlib1g-dev python3 python3-pip unzip wget curl rsync subversion
           sudo -E apt clean
 
-      - name: 拉取 IPQ60xx NSS 源码
+      - name: 拉取 IPQ60xx NSS 源码（你已经fork的版本）
         run: |
-          git clone https://github.com/qosmio/openwrt-ipq.git -b main-nss openwrt
+          git clone https://github.com/masonwang0928/openwrt-ipq.git -b main-nss openwrt
           cd openwrt
           git checkout main-nss
 
@@ -31,40 +31,39 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 生成基础配置 + 注入自定义项（安全模式）
+      - name: 生成配置（关键：直接禁用所有循环依赖包）
         run: |
           cd openwrt
-          # 1. 清空旧配置，生成干净的默认配置
+          # 1. 清空旧配置，写入目标设备基础配置
           rm -f .config
-          # 先设置目标设备
           echo "CONFIG_TARGET_qualcommax=y" > .config
           echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
           echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" >> .config
-          # 执行一次 defconfig 展开基础依赖
+          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=256" >> .config
+          
+          # 2. 先执行一次defconfig，只展开目标设备基础依赖
           make defconfig
           
-          # 2. 禁用所有可能导致循环依赖的包
-          sed -i 's/CONFIG_PACKAGE_sqm-scripts=y/# CONFIG_PACKAGE_sqm-scripts is not set/' .config
-          sed -i 's/CONFIG_PACKAGE_sqm-scripts-nss=y/# CONFIG_PACKAGE_sqm-scripts-nss is not set/' .config
-          sed -i 's/CONFIG_PACKAGE_iptasn=y/# CONFIG_PACKAGE_iptasn is not set/' .config
-          sed -i 's/CONFIG_PACKAGE_iptables-nft=y/# CONFIG_PACKAGE_iptables-nft is not set/' .config
-          sed -i 's/CONFIG_PACKAGE_kmod-tls=y/# CONFIG_PACKAGE_kmod-tls is not set/' .config
+          # 3. 用sed强制禁用所有会导致循环依赖的包（关键）
+          sed -i 's/^CONFIG_PACKAGE_sqm-scripts=.*/# CONFIG_PACKAGE_sqm-scripts is not set/' .config
+          sed -i 's/^CONFIG_PACKAGE_sqm-scripts-nss=.*/# CONFIG_PACKAGE_sqm-scripts-nss is not set/' .config
+          sed -i 's/^CONFIG_PACKAGE_iptasn=.*/# CONFIG_PACKAGE_iptasn is not set/' .config
+          sed -i 's/^CONFIG_PACKAGE_iptables-nft=.*/# CONFIG_PACKAGE_iptables-nft is not set/' .config
+          sed -i 's/^CONFIG_PACKAGE_kmod-tls=.*/# CONFIG_PACKAGE_kmod-tls is not set/' .config
           
-          # 3. 注入NSS硬件加速
+          # 4. 注入你需要的核心功能（NSS + MWAN3 + MosDNS + 代理）
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
           echo "CONFIG_PACKAGE_nss-firmware-ipq6018=y" >> .config
           
-          # 4. 注入MWAN3
           echo "CONFIG_PACKAGE_mwan3=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-mwan3=y" >> .config
           
-          # 5. 注入MosDNS
           echo "CONFIG_PACKAGE_luci-app-mosdns=y" >> .config
           echo "CONFIG_PACKAGE_mosdns=y" >> .config
           echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
           
-          # 6. 注入代理套件
           echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
           echo "CONFIG_PACKAGE_openclash=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-nikki=y" >> .config
@@ -72,20 +71,20 @@ jobs:
           echo "CONFIG_PACKAGE_iptables-mod-tproxy=y" >> .config
           echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
           
-          # 7. 注入常用工具
+          # 5. 注入常用工具
           echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-samba4=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-ddns=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
           
-          # 8. 禁用无线相关包
+          # 6. 禁用无线相关包（你的设备无WiFi）
           echo "# CONFIG_PACKAGE_luci-app-wireless is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-ath11k is not set" >> .config
           
-          # 9. 再执行一次 defconfig 确认
+          # 7. 再执行一次defconfig确认
           make defconfig
           
-          # 10. 校验设备配置是否生效
+          # 8. 校验设备配置是否生效
           grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" .config || exit 1
 
       - name: 下载源码依赖包
