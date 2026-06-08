@@ -45,17 +45,15 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # --------------------------
-      # 关键修正：先复制 .config 再 defconfig，确保设备型号生效
-      # --------------------------
       - name: 应用自定义 .config 配置
         run: |
           cd openwrt
-          cp $GITHUB_WORKSPACE/.config .config
-          make defconfig
-          # 强制确认目标设备配置，防止被覆盖
+          cp -f $GITHUB_WORKSPACE/.config .config
+          echo "CONFIG_TARGET_qualcommax=y" >> .config
+          echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
           echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" >> .config
           make defconfig
+          grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" .config || exit 1
 
       - name: 下载源码依赖包（仅无缓存时执行）
         if: steps.cache-openwrt.outputs.cache-hit != 'true'
@@ -72,11 +70,8 @@ jobs:
         run: |
           cd openwrt
           mkdir -p ../firmware
-          # 系统内升级包（保留配置）
           find bin/targets/ -name "*sysupgrade*.bin" -exec cp {} ../firmware/ \;
-          # U-Boot/TFTP 直刷包（全新刷机/救砖）
           find bin/targets/ -name "*factory*.bin" -exec cp {} ../firmware/ \;
-          # 额外备份U-Boot引导文件（可选）
           find bin/targets/ -name "u-boot*.bin" -o -name "u-boot*.mbn" -exec cp {} ../firmware/ \; 2>/dev/null || true
 
       - name: 上传固件至 Artifacts
@@ -84,15 +79,3 @@ jobs:
         with:
           name: openwrt-ipq60xx-firmware
           path: firmware/
-
-      - name: 发布固件至 GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: firmware/*
-          tag_name: "build-${{ github.run_number }}"
-          title: "IPQ60xx-NSS 复刻固件 编译批次${{ github.run_number }}"
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
