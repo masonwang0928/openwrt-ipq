@@ -1,4 +1,4 @@
-name: Build OpenWrt (IPQ60xx NSS 复刻版)
+name: Build OpenWrt (IPQ60xx NSS 终极版)
 concurrency:
   group: openwrt-ipq60xx-build
   cancel-in-progress: false
@@ -25,44 +25,68 @@ jobs:
           cd openwrt
           git checkout main-nss
 
-      - name: 加载编译缓存
-        uses: actions/cache@v3
-        id: cache-openwrt
-        with:
-          path: |
-            openwrt/.ccache
-            openwrt/build_dir
-            openwrt/staging_dir
-            openwrt/dl
-            openwrt/package/feeds
-          key: ${{ runner.os }}-openwrt-ipq60xx-${{ hashFiles('openwrt/.config') }}
-          restore-keys: |
-            ${{ runner.os }}-openwrt-ipq60xx-
-
       - name: 更新并安装软件源 feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 应用自定义 .config 配置
+      - name: 生成基础配置 + 注入自定义项（无循环依赖）
         run: |
           cd openwrt
-          # 1. 强制复制根目录的.config，覆盖默认配置
-          cp -f $GITHUB_WORKSPACE/.config .config
-          # 2. 先执行一次defconfig展开基础依赖
+          # 1. 清空旧配置，生成干净的默认配置
+          rm -f .config
           make defconfig
-          # 3. 强制写入设备配置，防止被覆盖
-          echo "CONFIG_TARGET_qualcommax=y" >> .config
-          echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
-          echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" >> .config
-          # 4. 再次执行defconfig确认
+          
+          # 2. 注入目标设备配置（京东云 RE-CS7）
+          sed -i 's/# CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_8devices_mango-dvk is not set/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y/' .config
+          sed -i 's/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_8devices_mango-dvk=y/# CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_8devices_mango-dvk is not set/' .config
+          
+          # 3. 注入NSS硬件加速
+          echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
+          echo "CONFIG_PACKAGE_nss-firmware-ipq6018=y" >> .config
+          
+          # 4. 注入MWAN3 + MWAN3Helper
+          echo "CONFIG_PACKAGE_mwan3=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-mwan3=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-mwan3helper=y" >> .config
+          
+          # 5. 注入MosDNS
+          echo "CONFIG_PACKAGE_luci-app-mosdns=y" >> .config
+          echo "CONFIG_PACKAGE_mosdns=y" >> .config
+          echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
+          
+          # 6. 注入代理套件
+          echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
+          echo "CONFIG_PACKAGE_openclash=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-nikki=y" >> .config
+          echo "CONFIG_PACKAGE_nikki=y" >> .config
+          echo "CONFIG_PACKAGE_iptables-mod-tproxy=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
+          
+          # 7. 注入常用工具
+          echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-samba4=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-ddns=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
+          
+          # 8. 禁用所有无线相关包
+          echo "# CONFIG_PACKAGE_luci-app-wireless is not set" >> .config
+          echo "# CONFIG_PACKAGE_kmod-ath11k is not set" >> .config
+          
+          # 9. 禁用循环依赖相关包（关键）
+          echo "# CONFIG_PACKAGE_sqm-scripts is not set" >> .config
+          echo "# CONFIG_PACKAGE_sqm-scripts-nss is not set" >> .config
+          echo "# CONFIG_PACKAGE_iptasn is not set" >> .config
+          
+          # 10. 执行一次defconfig确认配置
           make defconfig
-          # 5. 校验设备配置是否生效，不生效则直接报错
+          
+          # 11. 校验设备配置是否生效
           grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" .config || exit 1
 
-      - name: 下载源码依赖包（仅无缓存时执行）
-        if: steps.cache-openwrt.outputs.cache-hit != 'true'
+      - name: 下载源码依赖包
         run: |
           cd openwrt
           make download -j8
@@ -72,13 +96,12 @@ jobs:
           cd openwrt
           make -j$(nproc) V=s
 
-      - name: 打包 sysupgrade + factory 固件
+      - name: 打包固件
         run: |
           cd openwrt
           mkdir -p ../firmware
           find bin/targets/ -name "*sysupgrade*.bin" -exec cp {} ../firmware/ \;
           find bin/targets/ -name "*factory*.bin" -exec cp {} ../firmware/ \;
-          find bin/targets/ -name "u-boot*.bin" -o -name "u-boot*.mbn" -exec cp {} ../firmware/ \; 2>/dev/null || true
 
       - name: 上传固件至 Artifacts
         uses: actions/upload-artifact@v4
