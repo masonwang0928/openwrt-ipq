@@ -1,15 +1,9 @@
-# ------------------------------------------------------
-# 京东云 RE-CS-07 终极编译脚本
-# 内核：6.6 + NSS/ECM 硬件加速
-# 组件：MWAN3 + mwan3help + dae + AdGuardHome + MosDNS + OpenClash + KMS
-# 主题：Argon / Bootstrap / Material / OpenWrt2020 / Alpha
-# 默认IP：192.168.31.1
-# 机型锁定：升级不报错
-# ------------------------------------------------------
 name: Build RE-CS-07 终极固件
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main-nss ]
 
 jobs:
   build:
