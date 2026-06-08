@@ -1,4 +1,4 @@
-name: Build RE-CS-07 终极固件（国内镜像完整版）
+name: Build RE-CS-07 终极固件
 
 on:
   workflow_dispatch:
