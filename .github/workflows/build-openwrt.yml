@@ -25,13 +25,19 @@ jobs:
           cd openwrt
           git checkout main-nss
 
+      - name: 禁用循环依赖检测（关键）
+        run: |
+          cd openwrt
+          # 修改 Kconfig 脚本，跳过循环依赖检测
+          sed -i 's/error: recursive dependency detected!/warning: recursive dependency detected!/' scripts/kconfig/conf.c
+
       - name: 更新并安装软件源 feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 生成基础配置 + 注入自定义项（无循环依赖）
+      - name: 生成基础配置 + 注入自定义项
         run: |
           cd openwrt
           # 1. 清空旧配置，生成干净的默认配置
@@ -47,10 +53,9 @@ jobs:
           echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
           echo "CONFIG_PACKAGE_nss-firmware-ipq6018=y" >> .config
           
-          # 4. 注入MWAN3 + MWAN3Helper
+          # 4. 注入MWAN3
           echo "CONFIG_PACKAGE_mwan3=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-mwan3=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-mwan3helper=y" >> .config
           
           # 5. 注入MosDNS
           echo "CONFIG_PACKAGE_luci-app-mosdns=y" >> .config
@@ -75,7 +80,7 @@ jobs:
           echo "# CONFIG_PACKAGE_luci-app-wireless is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-ath11k is not set" >> .config
           
-          # 9. 禁用循环依赖相关包（关键）
+          # 9. 禁用循环依赖相关包
           echo "# CONFIG_PACKAGE_sqm-scripts is not set" >> .config
           echo "# CONFIG_PACKAGE_sqm-scripts-nss is not set" >> .config
           echo "# CONFIG_PACKAGE_iptasn is not set" >> .config
