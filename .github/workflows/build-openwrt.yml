@@ -25,27 +25,20 @@ jobs:
           cd openwrt
           git checkout main-nss
 
-      - name: 禁用循环依赖检测（关键）
-        run: |
-          cd openwrt
-          # 修改 Kconfig 脚本，跳过循环依赖检测
-          sed -i 's/error: recursive dependency detected!/warning: recursive dependency detected!/' scripts/kconfig/conf.c
-
       - name: 更新并安装软件源 feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 生成基础配置 + 注入自定义项
+      - name: 直接生成目标配置（跳过 make defconfig）
         run: |
           cd openwrt
-          # 1. 清空旧配置，生成干净的默认配置
-          rm -f .config
-          make defconfig
+          # 1. 复制目标设备的默认配置文件
+          cp target/linux/qualcommax/ipq60xx/config-5.4 .config
           
-          # 2. 注入目标设备配置（京东云 RE-CS7）
-          sed -i 's/# CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_8devices_mango-dvk is not set/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y/' .config
+          # 2. 注入目标设备：京东云 RE-CS7
+          echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" >> .config
           sed -i 's/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_8devices_mango-dvk=y/# CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_8devices_mango-dvk is not set/' .config
           
           # 3. 注入NSS硬件加速
@@ -76,7 +69,7 @@ jobs:
           echo "CONFIG_PACKAGE_luci-app-ddns=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
           
-          # 8. 禁用所有无线相关包
+          # 8. 禁用无线相关包
           echo "# CONFIG_PACKAGE_luci-app-wireless is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-ath11k is not set" >> .config
           
@@ -85,10 +78,7 @@ jobs:
           echo "# CONFIG_PACKAGE_sqm-scripts-nss is not set" >> .config
           echo "# CONFIG_PACKAGE_iptasn is not set" >> .config
           
-          # 10. 执行一次defconfig确认配置
-          make defconfig
-          
-          # 11. 校验设备配置是否生效
+          # 10. 校验设备配置是否生效
           grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" .config || exit 1
 
       - name: 下载源码依赖包
