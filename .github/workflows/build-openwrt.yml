@@ -31,15 +31,24 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 直接生成目标配置（跳过 make defconfig）
+      - name: 生成基础配置 + 注入自定义项（安全模式）
         run: |
           cd openwrt
-          # 1. 复制目标设备的默认配置文件
-          cp target/linux/qualcommax/ipq60xx/config-5.4 .config
-          
-          # 2. 注入目标设备：京东云 RE-CS7
+          # 1. 清空旧配置，生成干净的默认配置
+          rm -f .config
+          # 先设置目标设备
+          echo "CONFIG_TARGET_qualcommax=y" > .config
+          echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
           echo "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" >> .config
-          sed -i 's/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_8devices_mango-dvk=y/# CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_8devices_mango-dvk is not set/' .config
+          # 执行一次 defconfig 展开基础依赖
+          make defconfig
+          
+          # 2. 禁用所有可能导致循环依赖的包
+          sed -i 's/CONFIG_PACKAGE_sqm-scripts=y/# CONFIG_PACKAGE_sqm-scripts is not set/' .config
+          sed -i 's/CONFIG_PACKAGE_sqm-scripts-nss=y/# CONFIG_PACKAGE_sqm-scripts-nss is not set/' .config
+          sed -i 's/CONFIG_PACKAGE_iptasn=y/# CONFIG_PACKAGE_iptasn is not set/' .config
+          sed -i 's/CONFIG_PACKAGE_iptables-nft=y/# CONFIG_PACKAGE_iptables-nft is not set/' .config
+          sed -i 's/CONFIG_PACKAGE_kmod-tls=y/# CONFIG_PACKAGE_kmod-tls is not set/' .config
           
           # 3. 注入NSS硬件加速
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
@@ -73,10 +82,8 @@ jobs:
           echo "# CONFIG_PACKAGE_luci-app-wireless is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-ath11k is not set" >> .config
           
-          # 9. 禁用循环依赖相关包
-          echo "# CONFIG_PACKAGE_sqm-scripts is not set" >> .config
-          echo "# CONFIG_PACKAGE_sqm-scripts-nss is not set" >> .config
-          echo "# CONFIG_PACKAGE_iptasn is not set" >> .config
+          # 9. 再执行一次 defconfig 确认
+          make defconfig
           
           # 10. 校验设备配置是否生效
           grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_cs7=y" .config || exit 1
